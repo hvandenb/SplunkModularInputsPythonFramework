@@ -23,6 +23,7 @@ class YammerMessageHandler:
             output = json.loads(raw_response_output)
             last_yammer_indexed_id = 0
             for yammer_message in output["messages"]:
+                message_time = yammer_message["created_at"]
                 print_xml_stream(json.dumps(yammer_message))
                 if "id" in yammer_message:
                     message_id = yammer_message["id"]
@@ -32,7 +33,7 @@ class YammerMessageHandler:
             if not "params" in req_args:
                 req_args["params"] = {}
             
-            req_args["params"]["since_id"] = last_yammer_indexed_id
+            req_args["params"]["newer_than"] = last_yammer_indexed_id
                        
         else:
             print_xml_stream(raw_response_output)
@@ -43,6 +44,9 @@ class YammerMessageHandler:
 # prints XML stream
 def print_xml_stream(s):
     print "<stream><event unbroken=\"1\"><data>%s</data><done/></event></stream>" % encodeXMLText(s)
+
+    # Need to get the JSON time from the message and use <time>
+    # Set SHOULD_LINEMERGE to false
 
 
 
