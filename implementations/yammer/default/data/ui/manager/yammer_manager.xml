@@ -1,8 +1,8 @@
-<endpoint name="data/inputs/bugsense">
-	<header>Bugsense</header>
+<endpoint name="data/inputs/yammer">
+	<header>Yammer</header>
 	<breadcrumb>
 		<parent hidecurrent="False">datainputstats</parent>
-		<name>Bugsense</name>
+		<name>yammer</name>
 	</breadcrumb>
 	<elements>
 		<element name="sourceFields" type="fieldset">
@@ -10,58 +10,58 @@
 			<view name="edit" />
 			<view name="create" />
 			<elements>
-				<element name="name" label="Bugsense REST API Input Name">
+				<element name="name" label="Yammer REST API Input Name">
 					<view name="list" />
 					<view name="create" />
-					<key name="exampleText">Name of this Bugsense REST API Input</key>
+					<key name="exampeText">Name of this yammer REST API Input</key>
 				</element>
 
-				<element name="bugsense_api_endpoint_base_url" type="textfield" label="Bugsense REST API Endpoint Base URL">
+				<element name="yammer_api_endpoint_base_url" type="textfield" label="Yammer REST API Endpoint Base URL">
 
 					<view name="edit" />
 					<view name="create" />
 					<view name="list" />
-					<key name="exampleText">Bugsense REST API Endpoint Base URL</key>
+					<key name="exapleText">Yammer REST API Endpoint Base URL</key>
 				</element>
 
-<element name="bugsense_api_endpoint_path" type="select" label="Bugsense REST API Endpoint">
+				<element name="yammer_api_endpoint_path" type="select" label="Yammer REST API Endpoint">
 					
 					<view name="edit" />
 					<view name="create" />
 					<view name="list" />
 					
-					<key name="exampleText">Bugsense REST API Endpoint</key>
+					<key name="exampleText">Yammer REST API Endpoint</key>
 					<options>
-						<opt value="errors.json" label="Errors" />
-						<opt value="analytics.json" label="Analytics" />
-						<opt value="analytics/versions.json?category=app_versions" label="App Versions" />
-						<opt value="analytics/devices.json" label="Devices" />
-						<opt value="analytics/top_errors.json" label="Top Errors" />
-						<opt value="analytics/versions.json?category=os_versions" label="OS Versions" />
-						<opt value="analytics/trending_errors.json" label="Trending Errors" />
+						<opt value="messages.json" label="Messages" />
+						<opt value="following.json" label="Following" />
+						<opt value="users.json" label="Users" />
 					</options>
 				</element>
 
-				
-<element name="bugsense_project_id" type="textfield"
-					label="Bugsense Project ID">
+					
+				<element name="yammer_access_token" type="textfield"
+					label="Yammer Access Authentication Token">
 
 					<view name="edit" />
+					<view name="create" />
+					<key name="exampleText">Yammer Access Authentication Token. Generate using <![CDATA[<a href="https://www.yammer.com/dialog/oauth?client_id=[:client_id]&redirect_uri=[:redirect_uri]&response_type=token" target="_blank">https://www.yammer.com/dialog/oauth?client_id=[:client_id]&redirect_uri=[:redirect_uri]&response_type=token</a>]]>.</key>
+				</element>
+
+				<element name="yammer_client_id" type="textfield" label="Yammer Client Id">
+
+					<view name="edit" />
+					<view name="create" />
 					<view name="list" />
-					<view name="create" />
-					<key name="exampleText">Bugsense Project ID
-					</key>
-				</element>
-				
-<element name="bugsense_auth_token" type="textfield"
-					label="Bugsense Authentication Token">
+					<key name="exapleText">Yammer Client Id</key>
+				</element>	
+
+				<element name="yammer_client_secret" type="textfield" label="Yammer Client Secret">
 
 					<view name="edit" />
 					<view name="create" />
-					<key name="exampleText">Bugsense Authentication Token
-					</key>
-				</element>
-				
+					<view name="list" />
+					<key name="exapleText">Yammer Client Secret</key>
+				</element>								
 				
 				<element name="http_header_propertys" type="textfield"
 					label="HTTP Header Properties">

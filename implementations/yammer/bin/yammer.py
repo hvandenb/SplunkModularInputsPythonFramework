@@ -17,7 +17,7 @@ STANZA = None
 SESSION_TOKEN = None
 REGEX_PATTERN = None
 
-
+#dynamically load in any eggs in /etc/apps/yammer_ta/bin
 EGG_DIR = SPLUNK_HOME + "/etc/apps/yammer_ta/bin/"
 
 for filename in os.listdir(EGG_DIR):
@@ -27,7 +27,13 @@ for filename in os.listdir(EGG_DIR):
 import requests,json
 from splunklib.client import connect
 from splunklib.client import Service
-           
+
+from requests.auth import HTTPBasicAuth
+from requests.auth import HTTPDigestAuth
+from requests_oauthlib import OAuth1
+from requests_oauthlib import OAuth2Session
+from oauthlib.oauth2 import WebApplicationClient 
+
 #set up logging
 logging.root
 logging.root.setLevel(logging.ERROR)
@@ -70,6 +76,19 @@ SCHEME = """<scheme>
                 <description>Bugsense REST API Endpoint Path</description>
                 <required_on_edit>true</required_on_edit>
                 <required_on_create>true</required_on_create>
+            </arg>
+
+            <arg name="yammer_client_id">
+                <title>Yammer Client ID</title>
+                <description>Client ID for your application defined in Yammer</description>
+                <required_on_edit>false</required_on_edit>
+                <required_on_create>false</required_on_create>
+            </arg>
+            <arg name="yammer_client_secret">
+                <title>Yammer Client Secret</title>
+                <description>Yammer Client secret</description>
+                <required_on_edit>false</required_on_edit>
+                <required_on_create>false</required_on_create>
             </arg>
 
             <arg name="http_header_propertys">
@@ -189,8 +208,18 @@ def do_run():
     
     oauth2_token_type="Bearer"
     oauth2_access_token=config.get("yammer_access_token")    
+
+    oauth2_client_id=config.get("yammer_client_id")
+    oauth2_client_secret=config.get("yammer_client_secret")
+    
+    oauth2_refresh_props={}
+    oauth2_refresh_props['client_id'] = oauth2_client_id
+    oauth2_refresh_props['client_secret'] = oauth2_client_secret
+    oauth2_refresh_token=""
+    oauth2_refresh_url=""
     
     http_header_propertys_str=config.get("http_header_propertys")
+    http_header_propertys = {}
 
     if not http_header_propertys_str is None:
         http_header_propertys = dict((k.strip(), v.strip()) for k,v in 
@@ -255,6 +284,15 @@ def do_run():
             req_args["headers"]= http_header_propertys
         if proxies:
             req_args["proxies"]= proxies
+
+
+        token={}
+        token["token_type"] = oauth2_token_type
+        token["access_token"] = oauth2_access_token
+        token["refresh_token"] = oauth2_refresh_token
+        token["expires_in"] = "5"
+        client = WebApplicationClient(oauth2_client_id)
+        oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)            
                    
         while True:
                         
@@ -269,7 +307,8 @@ def do_run():
             
              
             try:
-                r = requests.get(endpoint,**req_args)
+                #r = requests.get(endpoint,**req_args)
+                r = oauth2.get(endpoint,**req_args)
                         
             except requests.exceptions.Timeout,e:
                 logging.error("HTTP Request Timeout error: %s" % str(e))
@@ -425,6 +464,16 @@ def get_input_config():
         raise Exception, "Error getting Splunk configuration via STDIN: %s" % str(e)
 
     return config
+
+def oauth2_token_updater(token):
+    
+    try:
+        args = {'host':'localhost','port':SPLUNK_PORT,'token':SESSION_TOKEN}
+        service = Service(**args)   
+        item = service.inputs.__getitem__(STANZA[7:])
+        item.update(oauth2_access_token=token["access_token"],oauth2_refresh_token=token["refresh_token"])
+    except RuntimeError,e:
+        logging.error("Looks like an error updating the oauth2 token: %s" % str(e))
 
 #read XML configuration passed from splunkd, need to refactor to support single instance mode
 def get_validation_config():

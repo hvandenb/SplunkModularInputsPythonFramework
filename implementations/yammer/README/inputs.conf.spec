@@ -1,16 +1,19 @@
-[bugsense://<name>]
+[yammer://<name>]
 
-* Bugsense REST API Endpoint Base URL
-bugsense_api_endpoint_base_url= <value>
+* Yammer REST API Endpoint Base URL
+yammer_api_endpoint_base_url= <value>
 
-* Bugsense Authentication Token
-bugsense_auth_token= <value>
+* Yammer Access Authentication Token
+yammer_access_token= <value>
 
-* Bugsense REST API Endpoint Path
-bugsense_api_endpoint_path= <value>
+* Yammer Client Id
+yammer_client_id= <value>
 
-* Bugsense Project ID
-bugsense_project_id= <value>
+* Yammer Client Secret
+yammer_client_secret= <value>
+
+* Yammer REST API Endpoint Path
+yammer_api_endpoint_path= <value>
 
 * prop=value, prop2=value2
 http_header_propertys= <value>
