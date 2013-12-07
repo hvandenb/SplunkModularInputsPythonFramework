@@ -1,6 +1,9 @@
 #add your custom response handler class to this module
 import json
-import datetime
+import datetime, os, time
+
+import logging
+
 #the default handler , does nothing , just passes the raw output directly to STDOUT
 class DefaultResponseHandler:
     
@@ -16,7 +19,7 @@ class YammerMessageHandler:
     def __init__(self,**args):
         pass
         
-    def __call__(self, response_object,raw_response_output,response_type,req_args,endpoint):
+    def __call__(self, response_object,raw_response_output,response_type,req_args,checkpoint_dir=False):
 
         if response_type == "json":        
             # Need to implement the since message as well...
@@ -32,6 +35,10 @@ class YammerMessageHandler:
             
             if not "params" in req_args:
                 req_args["params"] = {}
+
+            # Checkpoint the last message id into the checkpoint file
+            if checkpoint_dir:
+                save_checkpoint(checkpoint_dir, last_yammer_indexed_id)
             
             req_args["params"]["newer_than"] = last_yammer_indexed_id
                        
@@ -40,7 +47,22 @@ class YammerMessageHandler:
                     
            
 #HELPER FUNCTIONS
-    
+# Return the checkpoint file
+def get_encoded_file_path(checkpoint_dir):
+    # encode the URL (simply to make the file name recognizable)
+    name = "last_yammer_indexed_id"
+
+    return os.path.join(checkpoint_dir, name)
+
+# simply creates a checkpoint file indicating that the URL was checkpointed
+def save_checkpoint(checkpoint_dir, message_id):
+    chk_file = get_encoded_file_path(checkpoint_dir)
+    # just create an empty file name
+    logging.info("Checkpointing message=%s file=%s", message_id, chk_file)
+    f = open(chk_file, "w")
+    f.write(str(message_id))
+    f.close()
+
 # prints XML stream
 def print_xml_stream(s):
     print "<stream><event unbroken=\"1\"><data>%s</data><done/></event></stream>" % encodeXMLText(s)

@@ -255,24 +255,33 @@ def do_run():
     index_error_response_codes=int(config.get("index_error_response_codes",0))
     
     response_filter_pattern=config.get("response_filter_pattern")
+
+    checkpoint_dir = config.get("checkpoint_dir")
     
     if response_filter_pattern:
         global REGEX_PATTERN
         REGEX_PATTERN = re.compile(response_filter_pattern)
         
-    response_handler_args={} 
+    response_handler_args={}
     response_handler_args_str=config.get("response_handler_args")
     if not response_handler_args_str is None:
         response_handler_args = dict((k.strip(), v.strip()) for k,v in 
               (item.split('=') for item in response_handler_args_str.split(delimiter)))
-        
+    response_handler_args["checkpoint_dir"] = checkpoint_dir        
     response_handler=config.get("response_handler","DefaultResponseHandler")
+
+    #try:
+    #   if not output_handler is None:
     module = __import__("responsehandlers")
     class_ = getattr(module,response_handler)
 
     global RESPONSE_HANDLER_INSTANCE
     RESPONSE_HANDLER_INSTANCE = class_(**response_handler_args)
    
+    #except Exception,e:
+    #    logging.error("Output Handler "+output_handler+" can't be instantiated")
+    #    validationFailed = True
+
     req_args = {"verify" : False ,"stream" : bool(streaming_request) , "timeout" : float(request_timeout)}
 
     
@@ -285,15 +294,21 @@ def do_run():
         if proxies:
             req_args["proxies"]= proxies
 
-
         token={}
         token["token_type"] = oauth2_token_type
         token["access_token"] = oauth2_access_token
         token["refresh_token"] = oauth2_refresh_token
         token["expires_in"] = "5"
         client = WebApplicationClient(oauth2_client_id)
-        oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)            
-                   
+        oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)   
+
+        # Get the content of the checkpoint file
+        last_yammer_indexed_id = load_checkpoint(checkpoint_dir)    
+        logging.info("Last Checkpoint=%s", last_yammer_indexed_id)
+        if last_yammer_indexed_id:
+            req_args["params"]["newer_than"] = last_yammer_indexed_id
+        
+        # Round and round we go....                 
         while True:
                         
             if "params" in req_args:
@@ -323,9 +338,9 @@ def do_run():
                 if streaming_request:
                     for line in r.iter_lines():
                         if line:
-                            handle_output(r,line,response_type,req_args,endpoint)  
+                            handle_output(r,line,response_type,req_args,checkpoint_dir)  
                 else:                    
-                    handle_output(r,r.text,response_type,req_args,endpoint)
+                    handle_output(r,r.text,response_type,req_args,checkpoint_dir)
             except requests.exceptions.HTTPError,e:
                 error_output = r.text
                 error_http_code = r.status_code
@@ -369,14 +384,14 @@ def dictParameterToStringFormat(parameter):
         return None
     
             
-def handle_output(response,output,type,req_args,endpoint): 
+def handle_output(response,output,type,req_args,checkpoint_dir): 
     
     try:
         if REGEX_PATTERN:
             search_result = REGEX_PATTERN.search(output)
             if search_result == None:
                 return   
-        RESPONSE_HANDLER_INSTANCE(response,output,type,req_args,endpoint)
+        RESPONSE_HANDLER_INSTANCE(response,output,type,req_args,checkpoint_dir)
         sys.stdout.flush()               
     except RuntimeError,e:
         logging.error("Looks like an error handle the response output: %s" % str(e))
@@ -464,6 +479,27 @@ def get_input_config():
         raise Exception, "Error getting Splunk configuration via STDIN: %s" % str(e)
 
     return config
+
+# Return the checkpoint file
+def get_encoded_file_path(checkpoint_dir):
+    # encode the URL (simply to make the file name recognizable)
+    name = "last_yammer_indexed_id"
+
+    return os.path.join(checkpoint_dir, name)
+
+# returns last check point if the checkpoint file exists
+def load_checkpoint(checkpoint_dir):
+    chk_file = get_encoded_file_path(checkpoint_dir)
+    # try to open this file
+    try:
+        f = open(chk_file, "r")
+        last_message_id = int(f.read().strip())
+        f.close()
+
+    except:
+        # assume that this means the checkpoint is not there
+        return 0
+    return last_message_id   
 
 def oauth2_token_updater(token):
     
