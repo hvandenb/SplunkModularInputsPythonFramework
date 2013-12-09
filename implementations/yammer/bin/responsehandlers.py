@@ -46,7 +46,14 @@ class YammerMessageHandler:
                     message_id = yammer_message["id"]
                     if message_id > last_yammer_indexed_id:
                         last_yammer_indexed_id = message_id
-            
+
+            # Dump the reference information
+            for reference in output["references"]:
+                if reference["type"] == "user":
+                    print_xml_stream(json.dumps(reference), "yammer_user")
+                if reference["type"] == "group":
+                    print_xml_stream(json.dumps(reference), "yammer_group")
+
             if not "params" in req_args:
                 req_args["params"] = {}
 
@@ -78,13 +85,15 @@ def save_checkpoint(checkpoint_dir, message_id):
     f.close()
 
 # prints XML stream
-def print_xml_stream(s):
-    print "<stream><event unbroken=\"1\"><data>%s</data><done/></event></stream>" % encodeXMLText(s)
+#def print_xml_stream(s):
+#    print "<stream><event unbroken=\"1\"><data>%s</data><done/></event></stream>" % encodeXMLText(s)
 
-    # Need to get the JSON time from the message and use <time>
-    # Set SHOULD_LINEMERGE to false
-
-
+# prints XML stream
+def print_xml_stream(s, source_type=None):
+    if source_type == None:
+        print "<stream><event unbroken=\"1\"><data>%s</data><done/></event></stream>" % encodeXMLText(s)
+    else:
+        print "<stream><event unbroken=\"1\"><data>%s</data><sourcetype>%s</sourcetype><done/></event></stream>" % (encodeXMLText(s), encodeXMLText(source_type))
 
 def encodeXMLText(text):
     text = text.replace("&", "&amp;")
