@@ -1,4 +1,16 @@
 #add your custom response handler class to this module
+'''
+
+Response handler to allow for the formating of event stream data based on data retrieved from Yammer
+
+Copyright (C) 2013 Denver Water.
+http://www.denverwater.org
+All Rights Reserved
+
+@author Henri van den Bulk
+
+'''
+
 import json
 import datetime, os, time
 
@@ -19,7 +31,7 @@ class YammerMessageHandler:
     def __init__(self,**args):
         pass
         
-    def __call__(self, response_object,raw_response_output,response_type,req_args,checkpoint_dir=False):
+    def __call__(self, response_object,raw_response_output,response_type,req_args,endpoint):
 
         if response_type == "json":        
             # Need to implement the since message as well...
@@ -27,6 +39,8 @@ class YammerMessageHandler:
             last_yammer_indexed_id = 0
             for yammer_message in output["messages"]:
                 message_time = yammer_message["created_at"]
+                # "2013/12/02 19:03:32 +0000"
+                #strptime(message_time, "%Y/%m/%d %H:%M:%S")
                 print_xml_stream(json.dumps(yammer_message))
                 if "id" in yammer_message:
                     message_id = yammer_message["id"]
@@ -37,8 +51,8 @@ class YammerMessageHandler:
                 req_args["params"] = {}
 
             # Checkpoint the last message id into the checkpoint file
-            if checkpoint_dir:
-                save_checkpoint(checkpoint_dir, last_yammer_indexed_id)
+#            if checkpoint_dir:
+ #               save_checkpoint(checkpoint_dir, last_yammer_indexed_id)
             
             req_args["params"]["newer_than"] = last_yammer_indexed_id
                        

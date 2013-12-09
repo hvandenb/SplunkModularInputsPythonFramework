@@ -1,8 +1,13 @@
 '''
-Modular Input Script
+Modular Input for Yammer
+
+This provides the means to index different stream from Yammer, such as messages.
 
 Copyright (C) 2013 Denver Water.
+http://www.denverwater.org
 All Rights Reserved
+
+@author Henri van den Bulk
 
 '''
 
@@ -17,7 +22,7 @@ STANZA = None
 SESSION_TOKEN = None
 REGEX_PATTERN = None
 
-#dynamically load in any eggs in /etc/apps/yammer_ta/bin
+#dynamically load in any eggs in /etc/apps/snmp_ta/bin
 EGG_DIR = SPLUNK_HOME + "/etc/apps/yammer_ta/bin/"
 
 for filename in os.listdir(EGG_DIR):
@@ -25,15 +30,12 @@ for filename in os.listdir(EGG_DIR):
         sys.path.append(EGG_DIR + filename) 
        
 import requests,json
-from splunklib.client import connect
-from splunklib.client import Service
-
-from requests.auth import HTTPBasicAuth
-from requests.auth import HTTPDigestAuth
-from requests_oauthlib import OAuth1
 from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import WebApplicationClient 
-
+from requests.auth import AuthBase
+from splunklib.client import connect
+from splunklib.client import Service
+           
 #set up logging
 logging.root
 logging.root.setLevel(logging.ERROR)
@@ -60,21 +62,21 @@ SCHEME = """<scheme>
             <arg name="yammer_api_endpoint_base_url">
                 <title>Yammer REST API Base URL</title>
                 <description>Yammer REST API Base URL</description>
-                <required_on_edit>true</required_on_edit>
+                <required_on_edit>false</required_on_edit>
                 <required_on_create>true</required_on_create>
             </arg>
 
             <arg name="yammer_access_token">
                 <title>Yammer Access Authentication Token</title>
-                <description>Bugsense Authentication Token</description>
-                <required_on_edit>true</required_on_edit>
+                <description>Yammer Authentication Token</description>
+                <required_on_edit>false</required_on_edit>
                 <required_on_create>true</required_on_create>
             </arg>
            
             <arg name="yammer_api_endpoint_path">
                 <title>Yammer REST API Endpoint Path</title>
                 <description>Bugsense REST API Endpoint Path</description>
-                <required_on_edit>true</required_on_edit>
+                <required_on_edit>false</required_on_edit>
                 <required_on_create>true</required_on_create>
             </arg>
 
@@ -182,6 +184,8 @@ def do_validate():
     #if error , print_validation_error & sys.exit(2) 
     
 def do_run():
+
+    logging.info("Starting Yammer input")
     
     config = get_input_config() 
     
@@ -196,31 +200,49 @@ def do_run():
    
     #params
     
+    #endpoint=config.get("endpoint")
     endpoint=config.get("yammer_api_endpoint_base_url")+"/"+config.get("yammer_api_endpoint_path")
     
     http_method="GET"
+    #request_payload=config.get("request_payload")
     
     #none | basic | digest | oauth1 | oauth2
+    #auth_type=config.get("auth_type","none")
     auth_type="oauth2"
     
     #Delimiter to use for any multi "key=value" field inputs
     delimiter=config.get("delimiter",",")
     
+    #for basic and digest
+    auth_user=config.get("auth_user")
+    auth_password=config.get("auth_password")
+    
+  
+    #for oauth2
     oauth2_token_type="Bearer"
-    oauth2_access_token=config.get("yammer_access_token")    
-
+    #oauth2_access_token=config.get("oauth2_access_token")
+    oauth2_access_token=config.get("yammer_access_token")  
+    
+    #oauth2_refresh_token=config.get("oauth2_refresh_token")
+    oauth2_refresh_token=""
+    #oauth2_refresh_url=config.get("oauth2_refresh_url")
+    oauth2_refresh_url=""
+    oauth2_refresh_props_str=config.get("oauth2_refresh_props")
+    
+    #oauth2_client_id=config.get("oauth2_client_id")
+    #oauth2_client_secret=config.get("oauth2_client_secret")
     oauth2_client_id=config.get("yammer_client_id")
     oauth2_client_secret=config.get("yammer_client_secret")
     
     oauth2_refresh_props={}
+    if not oauth2_refresh_props_str is None:
+        oauth2_refresh_props = dict((k.strip(), v.strip()) for k,v in 
+              (item.split('=') for item in oauth2_refresh_props_str.split(delimiter)))
     oauth2_refresh_props['client_id'] = oauth2_client_id
     oauth2_refresh_props['client_secret'] = oauth2_client_secret
-    oauth2_refresh_token=""
-    oauth2_refresh_url=""
-    
+        
+    http_header_propertys={}
     http_header_propertys_str=config.get("http_header_propertys")
-    http_header_propertys = {}
-
     if not http_header_propertys_str is None:
         http_header_propertys = dict((k.strip(), v.strip()) for k,v in 
               (item.split('=') for item in http_header_propertys_str.split(delimiter)))
@@ -230,9 +252,12 @@ def do_run():
     if not url_args_str is None:
         url_args = dict((k.strip(), v.strip()) for k,v in 
               (item.split('=') for item in url_args_str.split(delimiter)))
-           
+        
+    #json | xml | text    
+    #response_type=config.get("response_type","text")
     response_type="json"
-    
+    last_yammer_indexed_id = 0
+        
     streaming_request=int(config.get("streaming_request",0))
     
     http_proxy=config.get("http_proxy")
@@ -255,60 +280,59 @@ def do_run():
     index_error_response_codes=int(config.get("index_error_response_codes",0))
     
     response_filter_pattern=config.get("response_filter_pattern")
-
-    checkpoint_dir = config.get("checkpoint_dir")
     
     if response_filter_pattern:
         global REGEX_PATTERN
         REGEX_PATTERN = re.compile(response_filter_pattern)
         
-    response_handler_args={}
+    response_handler_args={} 
     response_handler_args_str=config.get("response_handler_args")
     if not response_handler_args_str is None:
         response_handler_args = dict((k.strip(), v.strip()) for k,v in 
               (item.split('=') for item in response_handler_args_str.split(delimiter)))
-    response_handler_args["checkpoint_dir"] = checkpoint_dir        
+        
     response_handler=config.get("response_handler","DefaultResponseHandler")
-
-    #try:
-    #   if not output_handler is None:
     module = __import__("responsehandlers")
     class_ = getattr(module,response_handler)
 
     global RESPONSE_HANDLER_INSTANCE
     RESPONSE_HANDLER_INSTANCE = class_(**response_handler_args)
-   
-    #except Exception,e:
-    #    logging.error("Output Handler "+output_handler+" can't be instantiated")
-    #    validationFailed = True
-
-    req_args = {"verify" : False ,"stream" : bool(streaming_request) , "timeout" : float(request_timeout)}
-
+     
     
     try: 
-        
-        if url_args:
-            req_args["params"]= url_args
-        if http_header_propertys:
-            req_args["headers"]= http_header_propertys
-        if proxies:
-            req_args["proxies"]= proxies
-
+        auth=None
+        oauth2=None
+   
         token={}
         token["token_type"] = oauth2_token_type
         token["access_token"] = oauth2_access_token
         token["refresh_token"] = oauth2_refresh_token
         token["expires_in"] = "5"
         client = WebApplicationClient(oauth2_client_id)
-        oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)   
+        oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)
+   
+        req_args = {"verify" : False ,"stream" : bool(streaming_request) , "timeout" : float(request_timeout)}
 
-        # Get the content of the checkpoint file
-        last_yammer_indexed_id = load_checkpoint(checkpoint_dir)    
-        logging.info("Last Checkpoint=%s", last_yammer_indexed_id)
+        if auth:
+            req_args["auth"]= auth
+        if url_args:
+            req_args["params"]= url_args
+        if http_header_propertys:
+            req_args["headers"]= http_header_propertys
+        if proxies:
+            req_args["proxies"]= proxies
+#        if request_payload and not http_method == "GET":
+#            req_args["data"]= request_payload
+                          
+        # Set the last message id based on the settings
+        if "newer_than" in req_args:
+            last_yammer_indexed_id = req_args["params"]["newer_than"] 
+            logging.info("Last Checkpoint=%s", last_yammer_indexed_id)
+
         if last_yammer_indexed_id:
             req_args["params"]["newer_than"] = last_yammer_indexed_id
-        
-        # Round and round we go....                 
+                    
+
         while True:
                         
             if "params" in req_args:
@@ -319,10 +343,12 @@ def do_run():
                 req_args_headers_current = dictParameterToStringFormat(req_args["headers"])
             else:
                 req_args_headers_current = ""
-            
+            if "data" in req_args:
+                req_args_data_current = req_args["data"]
+            else:
+                req_args_data_current = ""
              
             try:
-                #r = requests.get(endpoint,**req_args)
                 r = oauth2.get(endpoint,**req_args)
                         
             except requests.exceptions.Timeout,e:
@@ -338,9 +364,9 @@ def do_run():
                 if streaming_request:
                     for line in r.iter_lines():
                         if line:
-                            handle_output(r,line,response_type,req_args,checkpoint_dir)  
+                            handle_output(r,line,response_type,req_args,endpoint)  
                 else:                    
-                    handle_output(r,r.text,response_type,req_args,checkpoint_dir)
+                    handle_output(r,r.text,response_type,req_args,endpoint)
             except requests.exceptions.HTTPError,e:
                 error_output = r.text
                 error_http_code = r.status_code
@@ -353,6 +379,9 @@ def do_run():
                 time.sleep(float(backoff_time))
                 continue
             
+            
+            if "data" in req_args:   
+                checkParamUpdated(req_args_data_current,req_args["data"],"request_payload")
             if "params" in req_args:
                 checkParamUpdated(req_args_params_current,dictParameterToStringFormat(req_args["params"]),"url_args")
             if "headers" in req_args:
@@ -368,9 +397,10 @@ def checkParamUpdated(cached,current,rest_name):
     
     if not (cached == current):
         try:
+            logging.info("Setting %s" % current)
             args = {'host':'localhost','port':SPLUNK_PORT,'token':SESSION_TOKEN}
             service = Service(**args)   
-            item = service.inputs.__getitem__(STANZA[11:])
+            item = service.inputs.__getitem__(STANZA[7:])
             item.update(**{rest_name:current})
         except RuntimeError,e:
             logging.error("Looks like an error updating the modular input parameter %s: %s" % (rest_name,str(e),))   
@@ -383,15 +413,25 @@ def dictParameterToStringFormat(parameter):
     else:
         return None
     
+def oauth2_token_updater(token):
+    
+    try:
+        args = {'host':'localhost','port':SPLUNK_PORT,'token':SESSION_TOKEN}
+        service = Service(**args)   
+        item = service.inputs.__getitem__(STANZA[7:])
+        item.update(oauth2_access_token=token["access_token"],oauth2_refresh_token=token["refresh_token"])
+    except RuntimeError,e:
+        logging.error("Looks like an error updating the oauth2 token: %s" % str(e))
+
             
-def handle_output(response,output,type,req_args,checkpoint_dir): 
+def handle_output(response,output,type,req_args,endpoint): 
     
     try:
         if REGEX_PATTERN:
             search_result = REGEX_PATTERN.search(output)
             if search_result == None:
                 return   
-        RESPONSE_HANDLER_INSTANCE(response,output,type,req_args,checkpoint_dir)
+        RESPONSE_HANDLER_INSTANCE(response,output,type,req_args,endpoint)
         sys.stdout.flush()               
     except RuntimeError,e:
         logging.error("Looks like an error handle the response output: %s" % str(e))
@@ -479,37 +519,6 @@ def get_input_config():
         raise Exception, "Error getting Splunk configuration via STDIN: %s" % str(e)
 
     return config
-
-# Return the checkpoint file
-def get_encoded_file_path(checkpoint_dir):
-    # encode the URL (simply to make the file name recognizable)
-    name = "last_yammer_indexed_id"
-
-    return os.path.join(checkpoint_dir, name)
-
-# returns last check point if the checkpoint file exists
-def load_checkpoint(checkpoint_dir):
-    chk_file = get_encoded_file_path(checkpoint_dir)
-    # try to open this file
-    try:
-        f = open(chk_file, "r")
-        last_message_id = int(f.read().strip())
-        f.close()
-
-    except:
-        # assume that this means the checkpoint is not there
-        return 0
-    return last_message_id   
-
-def oauth2_token_updater(token):
-    
-    try:
-        args = {'host':'localhost','port':SPLUNK_PORT,'token':SESSION_TOKEN}
-        service = Service(**args)   
-        item = service.inputs.__getitem__(STANZA[7:])
-        item.update(oauth2_access_token=token["access_token"],oauth2_refresh_token=token["refresh_token"])
-    except RuntimeError,e:
-        logging.error("Looks like an error updating the oauth2 token: %s" % str(e))
 
 #read XML configuration passed from splunkd, need to refactor to support single instance mode
 def get_validation_config():

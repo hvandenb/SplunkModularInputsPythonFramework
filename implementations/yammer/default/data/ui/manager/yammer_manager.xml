@@ -10,13 +10,13 @@
 			<view name="edit" />
 			<view name="create" />
 			<elements>
-				<element name="name" label="Yammer REST API Input Name">
+				<element name="name" label="Yammer API Input Name">
 					<view name="list" />
 					<view name="create" />
-					<key name="exampeText">Name of this yammer REST API Input</key>
+					<key name="exampeText">Name of this Yammer API Input</key>
 				</element>
 
-				<element name="yammer_api_endpoint_base_url" type="textfield" label="Yammer REST API Endpoint Base URL">
+				<element name="yammer_api_endpoint_base_url" type="textfield" label="Yammer API Endpoint Base URL">
 
 					<view name="edit" />
 					<view name="create" />
