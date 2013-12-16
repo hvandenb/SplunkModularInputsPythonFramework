@@ -9,11 +9,13 @@ All Rights Reserved
 
 @author Henri van den Bulk
 
+./splunk cmd splunkd print-modinput-config yammer yammer://Messages | ./splunk cmd python /Users/henivandenbulk/projects/splunk/etc/apps/yammer_ta/bin/yammer.py
+
 '''
 
 import sys,logging,os,time,re
 import xml.dom.minidom
-
+    
 SPLUNK_HOME = os.environ.get("SPLUNK_HOME")
 
 RESPONSE_HANDLER_INSTANCE = None
@@ -24,23 +26,34 @@ REGEX_PATTERN = None
 
 #dynamically load in any eggs in /etc/apps/snmp_ta/bin
 EGG_DIR = SPLUNK_HOME + "/etc/apps/yammer_ta/bin/"
+os.environ['REQUESTS_CA_BUNDLE'] = EGG_DIR + '/cacert.pem'
 
 for filename in os.listdir(EGG_DIR):
     if filename.endswith(".egg"):
         sys.path.append(EGG_DIR + filename) 
        
-import requests,json
-from requests_oauthlib import OAuth2Session
-from oauthlib.oauth2 import WebApplicationClient 
-from requests.auth import AuthBase
+import requests
+import json
+#from requests_oauthlib import OAuth2Session
+#from oauthlib.oauth2 import WebApplicationClient 
+#from requests.auth import AuthBase
+
 from splunklib.client import connect
 from splunklib.client import Service
-           
+
+import yampy
+
+# Import the specific errors
+from yampy.errors import ResponseError, NotFoundError, InvalidAccessTokenError, \
+    RateLimitExceededError, UnauthorizedError
+
 #set up logging
 logging.root
 logging.root.setLevel(logging.ERROR)
+#logging.root.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(levelname)s %(message)s')
 #with zero args , should go to STD ERR
+
 handler = logging.StreamHandler()
 handler.setFormatter(formatter)
 logging.root.addHandler(handler)
@@ -59,27 +72,20 @@ SCHEME = """<scheme>
                 <description>Name of this Yammer REST API endpoint</description>
             </arg>
                    
-            <arg name="yammer_api_endpoint_base_url">
-                <title>Yammer REST API Base URL</title>
-                <description>Yammer REST API Base URL</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>true</required_on_create>
-            </arg>
-
             <arg name="yammer_access_token">
                 <title>Yammer Access Authentication Token</title>
                 <description>Yammer Authentication Token</description>
                 <required_on_edit>false</required_on_edit>
                 <required_on_create>true</required_on_create>
             </arg>
-           
-            <arg name="yammer_api_endpoint_path">
-                <title>Yammer REST API Endpoint Path</title>
-                <description>Bugsense REST API Endpoint Path</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>true</required_on_create>
-            </arg>
 
+            <arg name="yammer_api_resource">
+                <title>Yammer Resource</title>
+                <description>Resource to get from Yammer</description>
+                <required_on_edit>true</required_on_edit>
+                <required_on_create>true</required_on_create>
+            </arg>            
+           
             <arg name="yammer_client_id">
                 <title>Yammer Client ID</title>
                 <description>Client ID for your application defined in Yammer</description>
@@ -93,12 +99,6 @@ SCHEME = """<scheme>
                 <required_on_create>false</required_on_create>
             </arg>
 
-            <arg name="http_header_propertys">
-                <title>HTTP Header Propertys</title>
-                <description>Custom HTTP header propertys : key=value,key2=value2</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
             <arg name="url_args">
                 <title>URL Arguments</title>
                 <description>Custom URL arguments : key=value,key2=value2</description>
@@ -106,24 +106,6 @@ SCHEME = """<scheme>
                 <required_on_create>false</required_on_create>
             </arg>
             
-            <arg name="streaming_request">
-                <title>Streaming Request</title>
-                <description>Whether or not this is a HTTP streaming request : true | false</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="http_proxy">
-                <title>HTTP Proxy Address</title>
-                <description>HTTP Proxy Address</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="https_proxy">
-                <title>HTTPs Proxy Address</title>
-                <description>HTTPs Proxy Address</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
             <arg name="request_timeout">
                 <title>Request Timeout</title>
                 <description>Request Timeout in seconds</description>
@@ -139,36 +121,6 @@ SCHEME = """<scheme>
             <arg name="polling_interval">
                 <title>Polling Interval</title>
                 <description>Interval time in seconds to poll the endpoint</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="delimiter">
-                <title>Delimiter</title>
-                <description>Delimiter to use for any multi "key=value" field inputs</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="index_error_response_codes">
-                <title>Index Error Responses</title>
-                <description>Whether or not to index error response codes : true | false</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="response_handler">
-                <title>Response Handler</title>
-                <description>Python classname of custom response handler</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="response_handler_args">
-                <title>Response Handler Arguments</title>
-                <description>Response Handler arguments string ,  key=value,key2=value2</description>
-                <required_on_edit>false</required_on_edit>
-                <required_on_create>false</required_on_create>
-            </arg>
-            <arg name="response_filter_pattern">
-                <title>Response Filter Pattern</title>
-                <description>Python Regex pattern, if present , responses must match this pattern to be indexed</description>
                 <required_on_edit>false</required_on_edit>
                 <required_on_create>false</required_on_create>
             </arg>
@@ -199,130 +151,45 @@ def do_run():
     SESSION_TOKEN = config.get("session_key")
    
     #params
-    
-    #endpoint=config.get("endpoint")
-    endpoint=config.get("yammer_api_endpoint_base_url")+"/"+config.get("yammer_api_endpoint_path")
-    
-    http_method="GET"
-    #request_payload=config.get("request_payload")
-    
-    #none | basic | digest | oauth1 | oauth2
-    #auth_type=config.get("auth_type","none")
-    auth_type="oauth2"
-    
-    #Delimiter to use for any multi "key=value" field inputs
-    delimiter=config.get("delimiter",",")
-    
-    #for basic and digest
-    auth_user=config.get("auth_user")
-    auth_password=config.get("auth_password")
-    
-  
-    #for oauth2
-    oauth2_token_type="Bearer"
-    #oauth2_access_token=config.get("oauth2_access_token")
-    oauth2_access_token=config.get("yammer_access_token")  
-    
-    #oauth2_refresh_token=config.get("oauth2_refresh_token")
-    oauth2_refresh_token=""
-    #oauth2_refresh_url=config.get("oauth2_refresh_url")
-    oauth2_refresh_url=""
-    oauth2_refresh_props_str=config.get("oauth2_refresh_props")
-    
-    #oauth2_client_id=config.get("oauth2_client_id")
-    #oauth2_client_secret=config.get("oauth2_client_secret")
-    oauth2_client_id=config.get("yammer_client_id")
-    oauth2_client_secret=config.get("yammer_client_secret")
-    
-    oauth2_refresh_props={}
-    if not oauth2_refresh_props_str is None:
-        oauth2_refresh_props = dict((k.strip(), v.strip()) for k,v in 
-              (item.split('=') for item in oauth2_refresh_props_str.split(delimiter)))
-    oauth2_refresh_props['client_id'] = oauth2_client_id
-    oauth2_refresh_props['client_secret'] = oauth2_client_secret
-        
-    http_header_propertys={}
-    http_header_propertys_str=config.get("http_header_propertys")
-    if not http_header_propertys_str is None:
-        http_header_propertys = dict((k.strip(), v.strip()) for k,v in 
-              (item.split('=') for item in http_header_propertys_str.split(delimiter)))
+         
+    #access_token=config.get("access_token")
+    access_token=config.get("yammer_access_token")  
        
+    #oauth2_client_id=config.get("oauth2_client_id")
+    #client_secret=config.get("oauth2_client_secret")
+    client_id=config.get("yammer_client_id")
+    client_secret=config.get("yammer_client_secret")
+                 
     url_args={} 
     url_args_str=config.get("url_args")
     if not url_args_str is None:
         url_args = dict((k.strip(), v.strip()) for k,v in 
-              (item.split('=') for item in url_args_str.split(delimiter)))
+              (item.split('=') for item in url_args_str.split(";")))
         
-    #json | xml | text    
-    #response_type=config.get("response_type","text")
-    response_type="json"
-    last_yammer_indexed_id = 0
-        
-    streaming_request=int(config.get("streaming_request",0))
-    
-    http_proxy=config.get("http_proxy")
-    https_proxy=config.get("https_proxy")
-    
-    proxies={}
-    
-    if not http_proxy is None:
-        proxies["http"] = http_proxy   
-    if not https_proxy is None:
-        proxies["https"] = https_proxy 
-        
-    
+    last_yammer_indexed_id = None
+    page = 0           
+
     request_timeout=int(config.get("request_timeout",30))
     
     backoff_time=int(config.get("backoff_time",10))
     
     polling_interval=int(config.get("polling_interval",60))
-    
-    index_error_response_codes=int(config.get("index_error_response_codes",0))
-    
-    response_filter_pattern=config.get("response_filter_pattern")
-    
-    if response_filter_pattern:
-        global REGEX_PATTERN
-        REGEX_PATTERN = re.compile(response_filter_pattern)
         
-    response_handler_args={} 
-    response_handler_args_str=config.get("response_handler_args")
-    if not response_handler_args_str is None:
-        response_handler_args = dict((k.strip(), v.strip()) for k,v in 
-              (item.split('=') for item in response_handler_args_str.split(delimiter)))
+    yammer_api_resource = config.get("yammer_api_resource")
         
-    response_handler=config.get("response_handler","DefaultResponseHandler")
-    module = __import__("responsehandlers")
-    class_ = getattr(module,response_handler)
-
-    global RESPONSE_HANDLER_INSTANCE
-    RESPONSE_HANDLER_INSTANCE = class_(**response_handler_args)
-     
-    
     try: 
-        auth=None
-        oauth2=None
-   
-        token={}
-        token["token_type"] = oauth2_token_type
-        token["access_token"] = oauth2_access_token
-        token["refresh_token"] = oauth2_refresh_token
-        token["expires_in"] = "5"
-        client = WebApplicationClient(oauth2_client_id)
-        oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)
-   
-        req_args = {"verify" : False ,"stream" : bool(streaming_request) , "timeout" : float(request_timeout)}
+  
+        # Create the client to communicate with Yammer
+        #authenticator = yampy.Authenticator(client_id=client_id, client_secret=client_secret)
+        yammer = yampy.Yammer(access_token=access_token)
 
-        if auth:
-            req_args["auth"]= auth
+        #client = WebApplicationClient(client_id)
+        #oauth2 = OAuth2Session(client, token=token,auto_refresh_url=oauth2_refresh_url,auto_refresh_kwargs=oauth2_refresh_props,token_updater=oauth2_token_updater)
+   
+        req_args = {"verify" : False, "timeout" : float(request_timeout)}
+
         if url_args:
             req_args["params"]= url_args
-        if http_header_propertys:
-            req_args["headers"]= http_header_propertys
-        if proxies:
-            req_args["proxies"]= proxies
-#        if request_payload and not http_method == "GET":
-#            req_args["data"]= request_payload
                           
         # Set the last message id based on the settings
         if "newer_than" in req_args:
@@ -339,18 +206,29 @@ def do_run():
                 req_args_params_current = dictParameterToStringFormat(req_args["params"])
             else:
                 req_args_params_current = ""
-            if "headers" in req_args: 
-                req_args_headers_current = dictParameterToStringFormat(req_args["headers"])
-            else:
-                req_args_headers_current = ""
             if "data" in req_args:
                 req_args_data_current = req_args["data"]
             else:
                 req_args_data_current = ""
              
             try:
-                r = oauth2.get(endpoint,**req_args)
-                        
+                data = None
+
+                if yammer_api_resource == "messages":
+                    data = yammer.messages.all(older_than=None, newer_than=last_yammer_indexed_id, limit=None, threaded=None)
+                elif yammer_api_resource == "users":
+                    
+                    data = yammer.users.all(page=page, letter=None, sort_by=None, reverse=None);
+                    page += 1
+                    if len(data) == 0:
+                        page = 1
+
+
+            except yampy.errors.RateLimitExceededError,e:
+                logging.error("Exceeped the Rate: %s" % str(e))
+                time.sleep(float(backoff_time))
+                continue
+
             except requests.exceptions.Timeout,e:
                 logging.error("HTTP Request Timeout error: %s" % str(e))
                 time.sleep(float(backoff_time))
@@ -360,21 +238,11 @@ def do_run():
                 time.sleep(float(backoff_time))
                 continue
             try:
-                r.raise_for_status()
-                if streaming_request:
-                    for line in r.iter_lines():
-                        if line:
-                            handle_output(r,line,response_type,req_args,endpoint)  
-                else:                    
-                    handle_output(r,r.text,response_type,req_args,endpoint)
+                                    
+                handle_output(yammer_api_resource, data, req_args)
+
             except requests.exceptions.HTTPError,e:
-                error_output = r.text
-                error_http_code = r.status_code
-                if index_error_response_codes:
-                    error_event=""
-                    error_event += 'http_error_code = %s error_message = %s' % (error_http_code, error_output) 
-                    print_xml_single_instance_mode(error_event)
-                    sys.stdout.flush()
+
                 logging.error("HTTP Request error: %s" % str(e))
                 time.sleep(float(backoff_time))
                 continue
@@ -405,6 +273,60 @@ def checkParamUpdated(cached,current,rest_name):
         except RuntimeError,e:
             logging.error("Looks like an error updating the modular input parameter %s: %s" % (rest_name,str(e),))   
         
+
+def getUserReference(messages, user_id, sender_type="user"):
+
+    for ref in messages.references:
+        if ref["id"] == user_id and ref["type"] == sender_type:
+            return ref
+
+    return None    
+
+def indexYammerMessages(messages, req_args):
+
+        last_yammer_indexed_id = None
+        for yammer_message in messages.messages:
+
+#            if "sender_id" in yammer_message:
+                #user = getUser(messages, yammer_message.sender_id, yammer_message.sender_type) 
+                #if user:
+                #    msg["sender"] = user
+
+            print_xml_stream(json.dumps(yammer_message))
+            if "id" in yammer_message:
+                message_id = yammer_message["id"]
+                if message_id > last_yammer_indexed_id:
+                    last_yammer_indexed_id = message_id
+
+        # Dump the reference information
+        # for reference in output["references"]:
+#        for reference in messages.references:            
+#            if reference["type"] == "user":
+#                print_xml_stream(json.dumps(reference), "yammer_user")
+#            if reference["type"] == "group":
+#                print_xml_stream(json.dumps(reference), "yammer_group")
+
+        if not "params" in req_args:
+            req_args["params"] = {}
+
+      
+        req_args["params"]["newer_than"] = last_yammer_indexed_id
+
+ 
+def indexYammerUsers(users, req_args):
+
+        for user in users:
+
+            print_xml_stream(json.dumps(user))
+
+        if not "params" in req_args:
+            req_args["params"] = {}
+
+
+def indexYammerFollowing(messages, req_args):
+
+    indexYammerMessages(messages, reg_args)
+
                        
 def dictParameterToStringFormat(parameter):
     
@@ -413,26 +335,20 @@ def dictParameterToStringFormat(parameter):
     else:
         return None
     
-def oauth2_token_updater(token):
-    
+#
+#            
+def handle_output(resource, data,req_args): 
+    """ Handles calling the correct indexing depending on the Yammer resource """  
     try:
-        args = {'host':'localhost','port':SPLUNK_PORT,'token':SESSION_TOKEN}
-        service = Service(**args)   
-        item = service.inputs.__getitem__(STANZA[7:])
-        item.update(oauth2_access_token=token["access_token"],oauth2_refresh_token=token["refresh_token"])
-    except RuntimeError,e:
-        logging.error("Looks like an error updating the oauth2 token: %s" % str(e))
+        #RESPONSE_HANDLER_INSTANCE(response,req_args)
+        if data:
+            func = "indexYammer" + resource.title()
+            logging.debug("Calling %s" % func)
 
-            
-def handle_output(response,output,type,req_args,endpoint): 
-    
-    try:
-        if REGEX_PATTERN:
-            search_result = REGEX_PATTERN.search(output)
-            if search_result == None:
-                return   
-        RESPONSE_HANDLER_INSTANCE(response,output,type,req_args,endpoint)
-        sys.stdout.flush()               
+            getattr(sys.modules[__name__], func)(data, req_args)
+
+            sys.stdout.flush()               
+
     except RuntimeError,e:
         logging.error("Looks like an error handle the response output: %s" % str(e))
 
@@ -447,6 +363,13 @@ def print_xml_single_instance_mode(s):
 # prints simple stream
 def print_simple(s):
     print "%s\n" % s
+
+# prints XML stream
+def print_xml_stream(s, source_type=None):
+    if source_type == None:
+        print "<stream><event unbroken=\"1\"><data>%s</data><done/></event></stream>" % encodeXMLText(s)
+    else:
+        print "<stream><event unbroken=\"1\"><data>%s</data><sourcetype>%s</sourcetype><done/></event></stream>" % (encodeXMLText(s), encodeXMLText(source_type))
 
 def encodeXMLText(text):
     text = text.replace("&", "&amp;")
@@ -480,11 +403,13 @@ def get_input_config():
         if session_key_node and session_key_node.firstChild and session_key_node.firstChild.nodeType == session_key_node.firstChild.TEXT_NODE:
             data = session_key_node.firstChild.data
             config["session_key"] = data 
-            
+            logging.debug("session_key: %s" % data)    
+
         server_uri_node = root.getElementsByTagName("server_uri")[0]
         if server_uri_node and server_uri_node.firstChild and server_uri_node.firstChild.nodeType == server_uri_node.firstChild.TEXT_NODE:
             data = server_uri_node.firstChild.data
             config["server_uri"] = data   
+            logging.debug("server_uri: %s" % data)    
             
         conf_node = root.getElementsByTagName("configuration")[0]
         if conf_node:
@@ -506,10 +431,10 @@ def get_input_config():
                             config[param_name] = data
                             logging.debug("XML: '%s' -> '%s'" % (param_name, data))
 
-        checkpnt_node = root.getElementsByTagName("checkpoint_dir")[0]
-        if checkpnt_node and checkpnt_node.firstChild and \
-           checkpnt_node.firstChild.nodeType == checkpnt_node.firstChild.TEXT_NODE:
-            config["checkpoint_dir"] = checkpnt_node.firstChild.data
+        #checkpnt_node = root.getElementsByTagName("checkpoint_dir")[0]
+        #if checkpnt_node and checkpnt_node.firstChild and \
+        #   checkpnt_node.firstChild.nodeType == checkpnt_node.firstChild.TEXT_NODE:
+        #    config["checkpoint_dir"] = checkpnt_node.firstChild.data
 
         if not config:
             raise Exception, "Invalid configuration received from Splunk."

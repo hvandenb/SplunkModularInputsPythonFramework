@@ -1,5 +1,15 @@
 <nav search_view="search">
 
 <view name="landing_page" default="true"/>
+    <collection label="Dashboards">
+        <view name="yammer_board" />
+        <view name="twitter_drilldown" />
+    </collection>
+    <collection label="Searches">
+        <saved name="Top Hashtags" />
+        <saved name="Top Mentions" />
+        <saved name="Top User Agents" />
+        <saved name="Top Users" />
+    </collection>
    
 </nav>
