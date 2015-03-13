@@ -102,6 +102,40 @@ class TwitterEventHandler:
                        
         else:
             print_xml_stream(raw_response_output)
+
+class CouchDBEventHandler:
+
+    def __init__(self,**args):
+        pass
+
+    def __call__(self, response_object,raw_response_output,response_type,req_args,endpoint):       
+            
+        if response_type == "json":        
+            output = json.loads(raw_response_output)
+            last_seq = 0
+            if output["last_seq"]:
+                last_seq = output["last_seq"]
+
+            for couch_event in output["results"]:
+                # Make sure this not a design document
+                if "id" in couch_event:
+                    if not re.match("design", couch_event["id"], re.M|re.I):
+                        print_xml_stream(json.dumps(couch_event))
+
+                # if "id_str" in couch_event:
+                #     last_seq = couch_event["id_str"]
+                #     if last_seq > last_tweet_indexed_id:
+                #         last_tweet_indexed_id = last_seq
+
+            
+            if not "params" in req_args:
+                req_args["params"] = {}
+            
+            req_args["params"]["since"] = last_seq
+                       
+        else:
+            print_xml_stream(raw_response_output)
+
                                         
 #HELPER FUNCTIONS
     
